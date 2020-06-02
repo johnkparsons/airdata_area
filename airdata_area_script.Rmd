@@ -1,0 +1,151 @@
+---
+title: "airdata_area_script"
+author: "John Parsons"
+date: "6/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+install.packages("rgeos")
+library(tidyverse)
+library(dplyr) #data transformation
+library(readr)
+library(geosphere) #area calculation
+library(sp) #creating spatial polygons
+library(maptools) #polygon union function
+library(rgeos) #polygon union requirement
+library(sf)
+```
+
+# Setup
+```{r}
+airdata <- read.csv("data_raw/2019-08-05_15-46-14_v2.csv")
+
+x_offset <- 64.5/2
+#64.5 is long (horizontal) side of FOV @ 50 m (Assuming short axis of camera is oriented north-south)
+
+y_offset <- 36.3/2
+#36.3 is short (vertical) side of FOV @ 50 m
+```
+
+# Calculating area and plotting from lower left and upper right corners:
+```{r}
+#generate df with all points @ ~50 m, add lower left and upper right coordinates of FOV for each point:
+coords <- airdata %>% 
+  filter(altitude.m. > 49.4) %>% 
+  filter(altitude.m. < 50.6) %>% 
+  select(longitude, latitude, altitude.m.) %>% 
+  mutate(x0 = longitude - (180/pi)*(x_offset/6378137)/cos(latitude),
+         y0 = latitude - (180/pi)*(y_offset/6378137),
+         x2 = longitude + (180/pi)*(x_offset/6378137)/cos(latitude),
+         y2 = latitude + (180/pi)*(y_offset/6378137))
+#6378137 is Earth radius in meters
+#x and y coordinates numbered by corner location, starting with 0 at the bottom left corner and moving clockwise
+
+area <- areaPolygon(coords4)
+#this area is the area of the polygon drawn from all lat/long points, not really what I'm looking for
+
+ggplot(coords, aes(x = x0, y = y0, fill = x0)) +
+  geom_rect(aes(xmin = x0, ymin= y0, xmax = x2, ymax = y2), alpha = 0.1)
+#this works for plotting individual rectangles, no good way to get area unless they are moved to GIS
+
+coords %>% 
+  filter(y0 < 34.407) %>% 
+  ggplot() +
+    geom_rect(aes(xmin = x0, ymin= y0, xmax = x2, ymax = y2))
+
+
+```
+
+# Alternate approach: All four corners
+```{r}
+coords4 <- coords %>% 
+  mutate(x1 = longitude - (180/pi)*(x_offset/6378137)/cos(latitude),
+         y1 = latitude + (180/pi)*(y_offset/6378137),
+         x3 = longitude + (180/pi)*(x_offset/6378137)/cos(latitude),
+         y3 = latitude - (180/pi)*(y_offset/6378137))
+#add other two corners
+
+sc <- slice(coords4, 1)
+ec <-slice(coords4, nrow(coords4))
+#new df's with corner coordinates of first and last rectangle (start coords and end coords)
+
+coords4 <- coords4 %>% 
+  add_row(x0 = sc$x1, y0 = sc$y1, x1 = sc$x2, y1 = sc$y2,
+          x2 = sc$x3, y2 = sc$y3, x3 = sc$x0, y3 = sc$y0, .before = 1) %>% 
+ add_row(x0 = ec$x1, y0 = ec$y1, x1 = ec$x2, y1 = ec$y2,
+          x2 = ec$x3, y2 = ec$y3, x3 = ec$x0, y3 = ec$y0)
+#add corner coordinates of first and last rectangle to coordinates of adjecent corner
+
+ggplot(coords4) +
+  geom_path(aes(x = x0, y = y0), color = "green") +
+  geom_path(aes(x = x1, y = y1), color = "red") +
+  geom_path(aes(x = x2, y = y2), color = "blue") +
+  geom_path(aes(x = x3, y = y3, color = altitude.m.), size = 2)
+#not sure where to go from here
+```
+
+#Loop to extract rectangles as Polygon objects
+```{r}
+#test with just the first rectangle:
+rect <- coords4 %>% 
+  slice(1) #will change to row number
+p1 <- rect %>% 
+  add_row(x0 = rect$x1, y0 = rect$y1) %>% 
+  add_row(x0 = rect$x2, y0 = rect$y2) %>% 
+  add_row(x0 = rect$x3, y0 = rect$y3) %>%
+  select(x0:y0) %>% 
+  Polygon()
+ps1 <- Polygons(list(p1), 1)
+sps <- SpatialPolygons(list(ps1))
+plot(sps)
+
+#testing adding a second rectangle to the shapefile:
+rect2 <- coords4 %>% 
+  slice(10) #will change to row
+
+p2 <- rect2 %>% 
+  add_row(x0 = rect2$x1, y0 = rect2$y1) %>% 
+  add_row(x0 = rect2$x2, y0 = rect2$y2) %>% 
+  add_row(x0 = rect2$x3, y0 = rect2$y3) %>%
+  select(x0:y0) %>% 
+  Polygon()
+ps2 <- Polygons(list(p2), 2) #also change to row to get unique ID for each polygon
+sps2 <- SpatialPolygons(list(ps1, ps2))
+plot(sps2)
+
+ID <- sample(1, length(sps2), replace = T)
+agg <- unionSpatialPolygons(sps2, ID) 
+plot(agg)
+#it works!
+
+#not working, but potential alternate method using a spdf:
+#spdf <- SpatialPolygonsDataFrame(sps2, ?)
+#spdf %>% group_by(?) %>% summarise()
+
+#looping:
+ps <- list()
+for (i in 1:nrow(coords4)) {
+  rect <- coords4 %>% 
+          slice(i)
+  p <- rect %>% 
+            add_row(x0 = rect$x1, y0 = rect$y1) %>% 
+            add_row(x0 = rect$x2, y0 = rect$y2) %>% 
+            add_row(x0 = rect$x3, y0 = rect$y3) %>%
+            select(x0:y0) %>% 
+            Polygon()
+  ps[[length(ps) + 1]] <- Polygons(list(p), i)
+}
+
+sps <- SpatialPolygons(ps)
+ID <- sample(1, length(sps), replace = T)
+agg <- unionSpatialPolygons(sps, ID)
+plot(agg)
+
+area <- areaPolygon(agg)
+area
+
+#common-sense check: each rectangle is
+```
