@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-install.packages("rgeos")
+#install.packages("rgeos")
 library(tidyverse)
 library(dplyr) #data transformation
 library(readr)
@@ -16,68 +16,42 @@ library(geosphere) #area calculation
 library(sp) #creating spatial polygons
 library(maptools) #polygon union function
 library(rgeos) #polygon union requirement
-library(sf)
+library(sf) #spatial data
 ```
 
-# Setup
+# Setup and Generate FOV Rectangles
 ```{r}
-airdata <- read.csv("data_raw/2019-08-05_15-46-14_v2.csv")
+airdata <- read.csv("data_raw/2019-07-31_16-55-57_v2.csv")
 
 x_offset <- 64.5/2
 #64.5 is long (horizontal) side of FOV @ 50 m (Assuming short axis of camera is oriented north-south)
 
 y_offset <- 36.3/2
 #36.3 is short (vertical) side of FOV @ 50 m
-```
 
-# Calculating area and plotting from lower left and upper right corners:
-```{r}
-#generate df with all points @ ~50 m, add lower left and upper right coordinates of FOV for each point:
+#generate df with all points @ ~50 m, add corner coordinates of FOV for each center point:
 coords <- airdata %>% 
   filter(altitude.m. > 49.4) %>% 
   filter(altitude.m. < 50.6) %>% 
   select(longitude, latitude, altitude.m.) %>% 
   mutate(x0 = longitude - (180/pi)*(x_offset/6378137)/cos(latitude),
          y0 = latitude - (180/pi)*(y_offset/6378137),
-         x2 = longitude + (180/pi)*(x_offset/6378137)/cos(latitude),
-         y2 = latitude + (180/pi)*(y_offset/6378137))
-#6378137 is Earth radius in meters
-#x and y coordinates numbered by corner location, starting with 0 at the bottom left corner and moving clockwise
-```
-
-# Alternate approach: All four corners
-```{r}
-coords4 <- coords %>% 
-  mutate(x1 = longitude - (180/pi)*(x_offset/6378137)/cos(latitude),
+         x1 = longitude - (180/pi)*(x_offset/6378137)/cos(latitude),
          y1 = latitude + (180/pi)*(y_offset/6378137),
+         x2 = longitude + (180/pi)*(x_offset/6378137)/cos(latitude),
+         y2 = latitude + (180/pi)*(y_offset/6378137),
          x3 = longitude + (180/pi)*(x_offset/6378137)/cos(latitude),
          y3 = latitude - (180/pi)*(y_offset/6378137))
-#add other two corners
-
-sc <- slice(coords4, 1)
-ec <-slice(coords4, nrow(coords4))
-#new df's with corner coordinates of first and last rectangle (start coords and end coords)
-
-coords4 <- coords4 %>% 
-  add_row(x0 = sc$x1, y0 = sc$y1, x1 = sc$x2, y1 = sc$y2,
-          x2 = sc$x3, y2 = sc$y3, x3 = sc$x0, y3 = sc$y0, .before = 1) %>% 
- add_row(x0 = ec$x1, y0 = ec$y1, x1 = ec$x2, y1 = ec$y2,
-          x2 = ec$x3, y2 = ec$y3, x3 = ec$x0, y3 = ec$y0)
-#add corner coordinates of first and last rectangle to coordinates of adjecent corner
-
-ggplot(coords4) +
-  geom_path(aes(x = x0, y = y0), color = "green") +
-  geom_path(aes(x = x1, y = y1), color = "red") +
-  geom_path(aes(x = x2, y = y2), color = "blue") +
-  geom_path(aes(x = x3, y = y3, color = altitude.m.), size = 2)
-#not sure where to go from here
+#6378137 is Earth radius in meters
+#x and y coordinates numbered by corner location, starting with (x0,y0) at the bottom left corner and moving clockwise
 ```
 
-#Loop to extract rectangles as Polygon objects
+# Extract rectangles as SpatialPolygon objects
 ```{r}
 ps <- list()
-for (i in 1:nrow(coords4)) {
-  rect <- coords4 %>% 
+#initialize list of polygons
+for (i in 1:nrow(coords)) {
+  rect <- coords %>% 
           slice(i)
   p <- rect %>% 
             add_row(x0 = rect$x1, y0 = rect$y1) %>% 
@@ -87,15 +61,37 @@ for (i in 1:nrow(coords4)) {
             Polygon()
   ps[[length(ps) + 1]] <- Polygons(list(p), i)
 }
+#take row with coordinates for one rectangle
+#move corner coordinates to same columns (x0 and y0)
+#convert rectangle to Polygon object
+#save Polygon in list ps and repeat
 
 sps <- SpatialPolygons(ps)
+#convert Polygons to SpatialPolygon objects
+proj4string(sps) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+#set CRS
+```
+
+# Aggregate SpatialPolygons and Find Area
+```{r}
 ID <- sample(1, length(sps), replace = T)
+#list of IDs, each SpatialPolygon is given same ID
 agg <- unionSpatialPolygons(sps, ID)
+#this function aggregates all SpatialPolygons into a single SpatialPolygon
+
 plot(agg)
 
 area <- areaPolygon(agg)
 area
+```
 
-#common-sense check:
-3*64.5*36.3
+```{r}
+64.5*36.3 - rect %>% 
+            add_row(x0 = rect$x1, y0 = rect$y1) %>% 
+            add_row(x0 = rect$x2, y0 = rect$y2) %>% 
+            add_row(x0 = rect$x3, y0 = rect$y3) %>%
+            select(x0:y0) %>% 
+            areaPolygon()
+#each rectangle is too small by 392 square meters, even though rectangles are calculated from width and height of FOV?
+#is this caused by imprecision in meters -> lat/long when calculating corner coordinates?
 ```
