@@ -22,6 +22,7 @@ library(sf) #spatial data
 # Setup and Generate FOV Rectangles
 ```{r}
 airdata <- read.csv("data_raw/2019-07-31_16-55-57_v2.csv")
+#make sure this is the v2.csv, not Standard.csv
 
 x_offset <- 64.5/2
 #64.5 is long (horizontal) side of FOV @ 50 m (Assuming short axis of camera is oriented north-south)
