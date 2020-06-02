@@ -43,20 +43,6 @@ coords <- airdata %>%
          y2 = latitude + (180/pi)*(y_offset/6378137))
 #6378137 is Earth radius in meters
 #x and y coordinates numbered by corner location, starting with 0 at the bottom left corner and moving clockwise
-
-area <- areaPolygon(coords4)
-#this area is the area of the polygon drawn from all lat/long points, not really what I'm looking for
-
-ggplot(coords, aes(x = x0, y = y0, fill = x0)) +
-  geom_rect(aes(xmin = x0, ymin= y0, xmax = x2, ymax = y2), alpha = 0.1)
-#this works for plotting individual rectangles, no good way to get area unless they are moved to GIS
-
-coords %>% 
-  filter(y0 < 34.407) %>% 
-  ggplot() +
-    geom_rect(aes(xmin = x0, ymin= y0, xmax = x2, ymax = y2))
-
-
 ```
 
 # Alternate approach: All four corners
@@ -89,43 +75,6 @@ ggplot(coords4) +
 
 #Loop to extract rectangles as Polygon objects
 ```{r}
-#test with just the first rectangle:
-rect <- coords4 %>% 
-  slice(1) #will change to row number
-p1 <- rect %>% 
-  add_row(x0 = rect$x1, y0 = rect$y1) %>% 
-  add_row(x0 = rect$x2, y0 = rect$y2) %>% 
-  add_row(x0 = rect$x3, y0 = rect$y3) %>%
-  select(x0:y0) %>% 
-  Polygon()
-ps1 <- Polygons(list(p1), 1)
-sps <- SpatialPolygons(list(ps1))
-plot(sps)
-
-#testing adding a second rectangle to the shapefile:
-rect2 <- coords4 %>% 
-  slice(10) #will change to row
-
-p2 <- rect2 %>% 
-  add_row(x0 = rect2$x1, y0 = rect2$y1) %>% 
-  add_row(x0 = rect2$x2, y0 = rect2$y2) %>% 
-  add_row(x0 = rect2$x3, y0 = rect2$y3) %>%
-  select(x0:y0) %>% 
-  Polygon()
-ps2 <- Polygons(list(p2), 2) #also change to row to get unique ID for each polygon
-sps2 <- SpatialPolygons(list(ps1, ps2))
-plot(sps2)
-
-ID <- sample(1, length(sps2), replace = T)
-agg <- unionSpatialPolygons(sps2, ID) 
-plot(agg)
-#it works!
-
-#not working, but potential alternate method using a spdf:
-#spdf <- SpatialPolygonsDataFrame(sps2, ?)
-#spdf %>% group_by(?) %>% summarise()
-
-#looping:
 ps <- list()
 for (i in 1:nrow(coords4)) {
   rect <- coords4 %>% 
@@ -147,5 +96,6 @@ plot(agg)
 area <- areaPolygon(agg)
 area
 
-#common-sense check: each rectangle is
+#common-sense check:
+3*64.5*36.3
 ```
