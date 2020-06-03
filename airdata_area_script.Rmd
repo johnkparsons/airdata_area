@@ -19,18 +19,25 @@ library(rgeos) #polygon union requirement
 library(sf) #spatial data
 ```
 
-# Setup and Generate FOV Rectangles
+# Setup 
 ```{r}
 airdata <- read.csv("data_raw/2019-07-31_16-55-57_v2.csv")
 #make sure this is the v2.csv, not Standard.csv
 
-x_offset <- 64.5/2
+FOV_x <- 64.5
 #64.5 is long (horizontal) side of FOV @ 50 m (Assuming short axis of camera is oriented north-south)
 
-y_offset <- 36.3/2
+FOV_y <- 36.3
 #36.3 is short (vertical) side of FOV @ 50 m
+```
 
-#generate df with all points @ ~50 m, add corner coordinates of FOV for each center point:
+# Generate FOV Rectangles
+```{r}
+x_offset <- FOV_x/2
+y_offset <- FOV_y/2
+#distance from center to corners
+
+#df with all points @ ~50 m, add corner coordinates of FOV for each center point:
 coords <- airdata %>% 
   filter(altitude.m. > 49.4) %>% 
   filter(altitude.m. < 50.6) %>% 
@@ -51,6 +58,7 @@ coords <- airdata %>%
 ```{r}
 ps <- list()
 #initialize list of polygons
+
 for (i in 1:nrow(coords)) {
   rect <- coords %>% 
           slice(i)
